@@ -2,7 +2,8 @@
 
 ## TODO
 
-- Translations
+- DB save
 - SQL scripts
 - All classes
+- Translations
 - Better UI
