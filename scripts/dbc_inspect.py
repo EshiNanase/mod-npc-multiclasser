@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 dbc_inspect2.py — ищет конкретные spell ID в Spell.dbc и показывает их поля.
 Использование:
