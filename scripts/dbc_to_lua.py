@@ -12,14 +12,20 @@ import re
 from collections import defaultdict
 
 # ======== СМЕЩЕНИЯ КОЛОНОК (0-based, каждая = 4 байта) ========
-COL_ID           = 0
-COL_ATTRIBUTES   = 5
-COL_SPELL_LEVEL  = 39
-COL_SPELL_FAMILY = 208
-COL_NAME         = 136
-COL_RANK_STR     = 153
+COL_ID            = 0
+COL_ATTRIBUTES    = 5
+COL_SPELL_LEVEL   = 39
+COL_SPELL_FAMILY  = 208
+COL_NAME          = 136
+COL_RANK_STR      = 153
+FAMILY_NAMES = {3, 4, 5, 6, 7, 8, 9, 10, 11, 15}
 
-PASSIVE_FLAG = 0x40
+# ПАССИВНЫЕ НАВЫКИ — полное исключение
+PASSIVE_FLAGS = (
+    0x40 |  # SPELL_ATTR0_PASSIVE
+    0x100 | # SPELL_ATTR0_HIDDEN_CLIENTSIDE
+    0x4000  # SPELL_ATTR0_NOT_SHAPESHIFT
+)
 
 def read_uint32(data, offset):
     return struct.unpack_from('<I', data, offset)[0]
@@ -70,7 +76,8 @@ def parse_dbc(dbc_path):
         name_off    = col(COL_NAME)
         rank_off    = col(COL_RANK_STR)
 
-        if attributes & PASSIVE_FLAG:
+        # ❌ СТРОГОЕ ИСКЛЮЧЕНИЕ ПАССИВНЫХ НАВЫКОВ
+        if attributes & PASSIVE_FLAGS != 0:
             continue
         if spell_level == 0 or spell_level > 80:
             continue
@@ -79,7 +86,7 @@ def parse_dbc(dbc_path):
         rank_str = read_cstring(string_block, rank_off)
         rank     = parse_rank(rank_str)
 
-        if rank == 0 or family_name == 0 or not name:
+        if rank == 0 or family_name not in FAMILY_NAMES or not name:
             continue
 
         spells.append({

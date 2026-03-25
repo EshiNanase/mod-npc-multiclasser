@@ -1,34 +1,107 @@
--- ============================================================
---  МУЛЬТИКЛАСС НПС — универсальный скрипт
---  Eluna / AzerothCore / TrinityCore
--- ============================================================
+local DEBUG = true
+local ENABLE = true
 
-local NPC_ENTRY  = 9000000
-local CLASS_COST = 10000   -- 1 золото за мультикласс
-local SPELL_COST = 10000   -- 1 золото за спелл
-local PAGE_SIZE  = 20      -- макс спеллов на странице
+local INITIALIZED = false
 
--- ====== GOSSIP SENDER-КОДЫ ======
+local NPC_ENTRY  = 133337
+local CLASS_COST = 100000
+local SPELL_COST = 10000
+local PAGE_SIZE  = 20
+
 local S_MAIN = 0
--- Меню уровней:        100 + classIndex
--- Меню спеллов:        200 + classIndex
--- Кнопка "Назад":      300 + classIndex
--- Пагинация спеллов:   400 + classIndex
-
--- ====== КОНФИГ КЛАССОВ ======
 local CLASS_CONFIG = {
-    { index = 1, classId = 4, name = "Воин" },
-    { index = 2, classId = 3, name = "Маг"  },
-    -- { index = 3, classId = 6, name = "Жрец" },
+    -- { index = 1, classId = 4, name = "Warrior" },
+    { index = 2, classId = 10, name = "Paladin" },
+    { index = 3, classId = 9, name = "Hunter" },
+    -- { index = 4, classId = 8, name = "Rogue" },
+    { index = 5, classId = 6, name = "Priest" },
+    { index = 6, classId = 7, name = "Druid" },
+    { index = 7, classId = 11, name = "Shaman" },
+    { index = 8, classId = 3, name = "Mage" },
+    { index = 9, classId = 5, name = "Warlock" },
+    -- { index = 10, classId = 15, name = "Death Knight" }
+}
+UNSUPPORTED_CLASSES = { "Warrior", "Rogue", "Death Knight" }
+
+local LOCALE = {
+    [0] = { -- enUS
+        CLASS_BUY       = "I want to become a %s",
+        CLASS_DESC      = "You will get access to %s spells",
+        BUY_SPELLS      = "Buy %s spells",
+        LEVEL           = "Level %d",
+        BACK            = "Back",
+        NO_SPELLS       = "No spells at this level.",
+        BACK_TO_LEVELS  = "Back to levels",
+        PREV_PAGE       = "<< Previous (%d/%d)",
+        NEXT_PAGE       = ">> Next (%d/%d)",
+        KNOWN           = "[known] %s",
+        BUY_SPELL       = "Buy %s (Rank %d)?",
+        NO_MONEY        = "Not enough gold!",
+        ALREADY_MULTI   = "You already have multiclass %s!",
+        NATIVE_CLASS    = "Can't choose your native class!",
+        BUY_MULTI_FIRST = "First buy multiclass %s!",
+        GOT_MULTICLASS  = "You got multiclass %s!",
+        ALREADY_KNOW    = "You already know %s.",
+        NEED_LEVEL      = "Need at least %d level for %s.",
+        SPELL_NOT_FOUND = "Error: spell not found.",
+        LEVEL_SPELLS    = "%s class spells, level %d",
+        RANK_SUFFIX     = "(Rank %d)",
+        LEVEL_SUFFIX    = "[requires %d level]",
+        UNSUPPORTED_CLASS = "I'm not master of your class yet...",
+    },
+    [8] = { -- ruRU
+        CLASS_BUY       = "Я хочу стать %sом",
+        CLASS_DESC      = "Ты получишь доступ к заклинаниям %sа",
+        BUY_SPELLS      = "Купить заклинания %sа",
+        LEVEL           = "Уровень %d",
+        BACK            = "Назад",
+        NO_SPELLS       = "На этом уровне нет заклинаний.",
+        BACK_TO_LEVELS  = "Назад к уровням",
+        PREV_PAGE       = "<< Предыдущая (%d/%d)",
+        NEXT_PAGE       = ">> Следующая (%d/%d)",
+        KNOWN           = "[известно] %s",
+        BUY_SPELL       = "Купить %s (Ранг %d)?",
+        NO_MONEY        = "Не хватает золота!",
+        ALREADY_MULTI   = "У тебя уже есть мультикласс %sа!",
+        NATIVE_CLASS    = "Нельзя выбрать свой родной класс!",
+        BUY_MULTI_FIRST = "Сначала купи мультикласс %sа!",
+        GOT_MULTICLASS  = "Ты получил мультикласс %sа!",
+        ALREADY_KNOW    = "Ты уже знаешь %s.",
+        NEED_LEVEL      = "Нужно минимум %d уровня для %s.",
+        SPELL_NOT_FOUND = "Ошибка: заклинание не найдено.",
+        LEVEL_SPELLS    = "Заклинания класса %s, %d уровень",
+        RANK_SUFFIX     = "(Ранг %d)",
+        LEVEL_SUFFIX    = "[требует %d ур.]",
+        UNSUPPORTED_CLASS = "Твой класс я пока не освоил...",   
+        Warrior = "Воин",
+        Paladin = "Паладин",
+        Hunter = "Охотник",
+        Rogue = "Разбойник",
+        Priest = "Жрец",
+        Druid = "Друид",
+        Shaman = "Шаман",
+        Mage = "Маг",
+        Warlock = "Чернокнижник",
+        DeathKnight = "Рыцарь смерти",
+    }
 }
 
--- Уровневые ступени — спеллы группируются по ближайшей ступени снизу
 local LEVEL_STEPS = { 10, 20, 30, 40, 50, 60, 70, 80 }
-
--- ====== ЗАГРУЗКА ДАННЫХ ======
 
 local CLASSES        = {}
 local CLASS_BY_INDEX = {}
+
+local function translate(player, key, ...)
+    if DEBUG then
+        print(player)
+        print(key)
+        print(...)
+    end
+    local localeId = player:GetDbLocaleIndex() or 0
+    local loc = LOCALE[localeId] or LOCALE[0]
+    local str = loc[key] or string.gsub(key, " ", "") or key
+    return string.format(str, ...)
+end
 
 local function RoundDownToStep(lvl)
     local result = LEVEL_STEPS[1]
@@ -48,8 +121,6 @@ local function InitClasses()
         package.loaded[moduleName] = nil
         local ok, spellData = pcall(require, moduleName)
         if not ok or not spellData then
-            print(string.format("[MulticlassNPC] ОШИБКА: не удалось загрузить %s.lua", moduleName))
-            print("[MulticlassNPC] Запусти: python dbc_to_lua.py --dbc ./data/dbc/Spell.dbc --out ./lua_scripts/")
             goto continue
         end
 
@@ -57,21 +128,25 @@ local function InitClasses()
         local total = 0
 
         for _, s in ipairs(spellData.spells) do
-            local step = RoundDownToStep(s.reqLevel)
-            if not spellsByLevel[step] then spellsByLevel[step] = {} end
-            table.insert(spellsByLevel[step], {
-                id       = s.id,
-                name     = s.name,
-                rank     = s.rank,
-                reqLevel = s.reqLevel,
-            })
-            total = total + 1
+            local spellInfo = GetSpellInfo(s.id)
+            if spellInfo and not spellInfo:IsPassive() then
+                local nameLower = string.lower(s.name)
+                if not string.find(nameLower, "test") then
+                    local step = RoundDownToStep(s.reqLevel)
+                    if not spellsByLevel[step] then spellsByLevel[step] = {} end
+                    table.insert(spellsByLevel[step], {
+                        id       = s.id,
+                        name     = s.name,
+                        rank     = s.rank,
+                        reqLevel = s.reqLevel,
+                    })
+                    total = total + 1
+                end
+            end
         end
 
         package.loaded[moduleName] = nil
         spellData = nil
-
-        print(string.format("[MulticlassNPC] Загружено %d спеллов для класса %s", total, cfg.name))
 
         local cls = {
             index  = cfg.index,
@@ -85,7 +160,6 @@ local function InitClasses()
     end
 end
 
--- ====== ХРАНИЛИЩЕ МУЛЬТИКЛАССОВ ======
 local multiclassData = {}
 
 local function HasMulticlass(player, classIndex)
@@ -99,25 +173,24 @@ local function SetMulticlass(player, classIndex, value)
     multiclassData[g][classIndex] = value and true or nil
 end
 
--- ====== ВСПОМОГАТЕЛЬНЫЕ ======
-
-local function SpellLink(spellId, spellName)
+local function SpellLink(player, spellId, spellName, spellRank)
+    local rankMes = translate(player, "RANK_SUFFIX", spellRank)
+    local spellName = string.format("%s %s", spellName, rankMes)
     return string.format("|cff71d5ff|Hspell:%d:0|h[%s]|h|r", spellId, spellName)
 end
 
-local function SpellLabel(sd, playerLevel)
+local function SpellLabel(player, spell, playerLevel)
     local rankSuffix = ""
-    if sd.rank and sd.rank > 0 then
-        rankSuffix = string.format(" (Ранг %d)", sd.rank)
+    if spell.rank and spell.rank > 0 then
+        rankSuffix = translate(player, "RANK_SUFFIX", spell.rank)
     end
     local levelSuffix = ""
-    if sd.reqLevel and playerLevel < sd.reqLevel then
-        levelSuffix = string.format(" [требует %d ур.]", sd.reqLevel)
+    if spell.reqLevel and playerLevel < spell.reqLevel then
+        levelSuffix = translate(player, "LEVEL_SUFFIX", spell.reqLevel)
     end
-    return string.format("%s%s%s", sd.name, rankSuffix, levelSuffix)
+    return string.format("%s %s %s", spell.name, rankSuffix, levelSuffix)
 end
 
--- action = level * 100 + spellIndex  (макс 80*100+99 = 8099)
 local function EncodeSpellAction(level, spellIndex)
     return level * 100 + spellIndex
 end
@@ -128,7 +201,6 @@ local function DecodeSpellAction(action)
     return level, spellIndex
 end
 
--- action для пагинации = level * 100 + page
 local function EncodePagingAction(level, page)
     return level * 100 + page
 end
@@ -144,25 +216,25 @@ local function SpellMenuSender(classIndex)    return 200 + classIndex end
 local function BackToLevelsSender(classIndex) return 300 + classIndex end
 local function PagingSender(classIndex)       return 400 + classIndex end
 
--- ====== МЕНЮ ======
-
 local function OpenMainMenu(player, creature)
     player:GossipClearMenu()
 
+    local playerClassName = player:GetClassAsString()
+
     for _, cls in ipairs(CLASSES) do
-        if not HasMulticlass(player, cls.index) then
+        if cls.name ~= playerClassName and not HasMulticlass(player, cls.index) then
             player:GossipMenuAddItem(
                 0,
-                string.format("Я хочу стать %sом", cls.name),
+                translate(player, "CLASS_BUY", translate(player, cls.name)),
                 S_MAIN, cls.index * 10 + 1,
                 false,
-                string.format("Ты получишь доступ к заклинаниям %sа", cls.name),
+                translate(player, "CLASS_DESC", translate(player, cls.name)),
                 CLASS_COST
             )
-        else
+        elseif cls.name ~= playerClassName then
             player:GossipMenuAddItem(
                 0,
-                string.format("Купить заклинания %sа", cls.name),
+                translate(player, "BUY_SPELLS", translate(player, cls.name)),
                 S_MAIN, cls.index * 10 + 2,
                 false, "", 0
             )
@@ -184,13 +256,13 @@ local function OpenLevelMenu(player, creature, cls)
     for _, lvl in ipairs(levels) do
         player:GossipMenuAddItem(
             0,
-            string.format("Уровень %d", lvl),
+            translate(player, "LEVEL", lvl),
             LevelMenuSender(cls.index), lvl,
             false, "", 0
         )
     end
 
-    player:GossipMenuAddItem(0, "Назад", S_MAIN, 0, false, "", 0)
+    player:GossipMenuAddItem(0, translate(player, "BACK"), S_MAIN, 0, false, "", 0)
     player:GossipSendMenu(1, creature)
 end
 
@@ -198,7 +270,7 @@ local function OpenSpellMenu(player, creature, cls, level, page, sendLinks)
     local spells = cls.spells[level]
     if not spells or #spells == 0 then
         player:GossipClearMenu()
-        player:GossipMenuAddItem(0, "На этом уровне нет заклинаний.", LevelMenuSender(cls.index), 0, false, "", 0)
+        player:GossipMenuAddItem(0, translate(player, "NO_SPELLS"), LevelMenuSender(cls.index), 0, false, "", 0)
         player:GossipSendMenu(1, creature)
         return
     end
@@ -209,8 +281,9 @@ local function OpenSpellMenu(player, creature, cls, level, page, sendLinks)
     local toIdx      = math.min(page * PAGE_SIZE, #spells)
 
     if sendLinks then
-        for j = fromIdx, toIdx do
-            player:SendBroadcastMessage(SpellLink(spells[j].id, spells[j].name))
+        player:SendBroadcastMessage(translate(player, "LEVEL_SPELLS", translate(player, cls.name), level))
+        for _, spell in ipairs(spells) do
+            player:SendBroadcastMessage(SpellLink(player, spell.id, spell.name, spell.rank))
         end
     end
 
@@ -218,14 +291,14 @@ local function OpenSpellMenu(player, creature, cls, level, page, sendLinks)
     player:GossipClearMenu()
 
     for i = fromIdx, toIdx do
-        local sd     = spells[i]
-        local label  = SpellLabel(sd, playerLevel)
-        local known  = player:HasSpell(sd.id)
-        local tooLow = sd.reqLevel and (playerLevel < sd.reqLevel)
+        local spell  = spells[i]
+        local label  = SpellLabel(player, spell, playerLevel)
+        local known  = player:HasSpell(spell.id)
+        local tooLow = spell.reqLevel and (playerLevel < spell.reqLevel)
         local action = EncodeSpellAction(level, i)
 
         if known then
-            player:GossipMenuAddItem(0, "[известно] " .. label, SpellMenuSender(cls.index), action, false, "", 0)
+            player:GossipMenuAddItem(0, translate(player, "KNOWN", label), SpellMenuSender(cls.index), action, false, "", 0)
         elseif tooLow then
             player:GossipMenuAddItem(3, label, SpellMenuSender(cls.index), action, false, "", 0)
         else
@@ -233,26 +306,33 @@ local function OpenSpellMenu(player, creature, cls, level, page, sendLinks)
                 3, label,
                 SpellMenuSender(cls.index), action,
                 false,
-                string.format("Купить %s (Ранг %d)?", sd.name, sd.rank or 1),
+                translate(player, "BUY_SPELL", spell.name, spell.rank or 1),
                 SPELL_COST
             )
         end
     end
 
     if page > 1 then
-        player:GossipMenuAddItem(0, string.format("<< Предыдущая (%s/%d)", page, totalPages), PagingSender(cls.index), EncodePagingAction(level, page - 1), false, "", 0)
+        player:GossipMenuAddItem(0, translate(player, "PREV_PAGE", page, totalPages), PagingSender(cls.index), EncodePagingAction(level, page - 1), false, "", 0)
     end
     if page < totalPages then
-        player:GossipMenuAddItem(0, string.format(">> Следующая (%s/%d)", page, totalPages), PagingSender(cls.index), EncodePagingAction(level, page + 1), false, "", 0)
+        player:GossipMenuAddItem(0, translate(player, "NEXT_PAGE", page, totalPages), PagingSender(cls.index), EncodePagingAction(level, page + 1), false, "", 0)
     end
 
-    player:GossipMenuAddItem(0, "Назад к уровням", BackToLevelsSender(cls.index), cls.index, false, "", 0)
+    player:GossipMenuAddItem(0, translate(player, "BACK_TO_LEVELS"), BackToLevelsSender(cls.index), cls.index, false, "", 0)
     player:GossipSendMenu(1, creature)
 end
 
--- ====== ОБРАБОТЧИК ВЫБОРА ======
-
 local function OnGossipSelect(event, player, creature, sender, action)
+
+    local playerClass = player:GetClass()
+    for _, class in ipairs(UNSUPPORTED_CLASSES) do
+        if playerClass == class then
+            player:SendBroadcastMessage(translate(player, "UNSUPPORTED_CLASS"))
+            return
+        end
+    end
+
 
     if sender == S_MAIN then
         if action == 0 then
@@ -267,24 +347,25 @@ local function OnGossipSelect(event, player, creature, sender, action)
         if not cls then OpenMainMenu(player, creature) return end
 
         if subAction == 1 then
+            if cls.classId == playerClass then
+                OpenMainMenu(player, creature)
+                return
+            end
             if HasMulticlass(player, cls.index) then
-                player:SendBroadcastMessage("У тебя уже есть мультикласс " .. cls.name .. "а.")
                 OpenMainMenu(player, creature)
                 return
             end
             if (player:GetCoinage() or 0) < CLASS_COST then
-                player:SendBroadcastMessage("Не хватает золота!")
                 OpenMainMenu(player, creature)
                 return
             end
             player:ModifyMoney(-CLASS_COST)
             SetMulticlass(player, cls.index, true)
-            player:SendBroadcastMessage("Ты получил мультикласс " .. cls.name .. "а!")
+            player:SendBroadcastMessage(translate(player, "GOT_MULTICLASS", translate(player, cls.name)))
             OpenMainMenu(player, creature)
 
         elseif subAction == 2 then
             if not HasMulticlass(player, cls.index) then
-                player:SendBroadcastMessage("Сначала купи мультикласс " .. cls.name .. "а.")
                 OpenMainMenu(player, creature)
                 return
             end
@@ -323,28 +404,27 @@ local function OnGossipSelect(event, player, creature, sender, action)
         local spellData = spells and spells[spellIndex]
 
         if not spellData then
-            player:SendBroadcastMessage("Ошибка: заклинание не найдено.")
             OpenLevelMenu(player, creature, cls)
             return
         end
 
         if player:HasSpell(spellData.id) then
-            player:SendBroadcastMessage("Ты уже знаешь " .. spellData.name .. ".")
+            player:SendBroadcastMessage(translate(player, "ALREADY_KNOW", spellData.name))
             OpenSpellMenu(player, creature, cls, level, 1, false)
             return
         end
 
-        local playerLevel = player:GetLevel()
+        local playerLevel = player:GetLevel()   
         if spellData.reqLevel and playerLevel < spellData.reqLevel then
             player:SendBroadcastMessage(
-                string.format("Нужно минимум %d уровня для %s.", spellData.reqLevel, spellData.name)
+                translate(player, "NEED_LEVEL", spellData.reqLevel, spellData.name)
             )
             OpenSpellMenu(player, creature, cls, level, 1, false)
             return
         end
 
         if (player:GetCoinage() or 0) < SPELL_COST then
-            player:SendBroadcastMessage("Не хватает золота!")
+            player:SendBroadcastMessage(translate(player, "NO_MONEY"))
             OpenSpellMenu(player, creature, cls, level, 1, false)
             return
         end
@@ -355,25 +435,25 @@ local function OnGossipSelect(event, player, creature, sender, action)
     end
 end
 
--- ====== РЕГИСТРАЦИЯ ======
-
-local _initialized = false
-
 local function EnsureInit()
-    if not _initialized then
+    if not INITIALIZED then
         InitClasses()
-        _initialized = true
+        INITIALIZED = true
     end
 end
 
-RegisterServerEvent(3, function()
+if ENABLE then
+
+    RegisterServerEvent(3, function()
+        EnsureInit()
+    end)
+
     EnsureInit()
-end)
 
-EnsureInit()
+    RegisterCreatureGossipEvent(NPC_ENTRY, 1, function(event, player, creature)
+        EnsureInit()
+        OpenMainMenu(player, creature)
+    end)
 
-RegisterCreatureGossipEvent(NPC_ENTRY, 1, function(event, player, creature)
-    OpenMainMenu(player, creature)
-end)
-
-RegisterCreatureGossipEvent(NPC_ENTRY, 2, OnGossipSelect)
+    RegisterCreatureGossipEvent(NPC_ENTRY, 2, OnGossipSelect)
+end

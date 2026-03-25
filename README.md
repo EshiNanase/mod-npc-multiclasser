@@ -1,9 +1,9 @@
-# mod-npc-multiclasser  
+# mod-npc-multiclasser
 
 ## TODO
 
+- Think about All Classes, All Spells
 - DB save
 - SQL scripts
-- All classes
-- Translations
 - Better UI
+- Warrior, Rogue, Death Knight classes
