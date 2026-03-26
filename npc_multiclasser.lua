@@ -1,27 +1,12 @@
-local DEBUG = true
 local ENABLE = true
-
-local INITIALIZED = false
-
 local NPC_ENTRY  = 133337
 local CLASS_COST = 100000
 local SPELL_COST = 10000
 local PAGE_SIZE  = 20
 
+local INITIALIZED = false
+
 local S_MAIN = 0
-local CLASS_CONFIG = {
-    -- { index = 1, classId = 4, name = "Warrior" },
-    { index = 2, classId = 10, name = "Paladin" },
-    { index = 3, classId = 9, name = "Hunter" },
-    -- { index = 4, classId = 8, name = "Rogue" },
-    { index = 5, classId = 6, name = "Priest" },
-    { index = 6, classId = 7, name = "Druid" },
-    { index = 7, classId = 11, name = "Shaman" },
-    { index = 8, classId = 3, name = "Mage" },
-    { index = 9, classId = 5, name = "Warlock" },
-    -- { index = 10, classId = 15, name = "Death Knight" }
-}
-UNSUPPORTED_CLASSES = { "Warrior", "Rogue", "Death Knight" }
 
 local LOCALE = {
     [0] = { -- enUS
@@ -85,18 +70,59 @@ local LOCALE = {
         DeathKnight = "Рыцарь смерти",
     }
 }
+local CLASS_CONFIG = {
+    -- { index = 1, classId = 4, name = "Warrior" },
+    { index = 2, classId = 10, name = "Paladin" },
+    { index = 3, classId = 9, name = "Hunter" },
+    -- { index = 4, classId = 8, name = "Rogue" },
+    { index = 5, classId = 6, name = "Priest" },
+    { index = 6, classId = 7, name = "Druid" },
+    { index = 7, classId = 11, name = "Shaman" },
+    { index = 8, classId = 3, name = "Mage" },
+    { index = 9, classId = 5, name = "Warlock" },
+    -- { index = 10, classId = 15, name = "Death Knight" }
+}
+local UNSUPPORTED_CLASSES = { "Warrior", "Rogue", "Death Knight" }
 
-local LEVEL_STEPS = { 10, 20, 30, 40, 50, 60, 70, 80 }
+local LEVEL_STEPS = { 
+    [10] = {
+        level = 10,
+        cost = 5000,
+    }, 
+    [20] = {
+        level = 20,
+        cost = 10000,
+    }, 
+    [30] = {
+        level = 30,
+        cost = 50000,
+    }, 
+    [40] = {
+        level = 40,
+        cost = 100000,
+    }, 
+    [50] = {
+        level = 50,
+        cost = 150000,
+    }, 
+    [60] = {
+        level = 60,
+        cost = 200000,
+    }, 
+    [70] = {
+        level = 70,
+        cost = 250000,
+    }, 
+    [80] = {
+        level = 80,
+        cost = 300000,
+    },
+}
 
 local CLASSES        = {}
 local CLASS_BY_INDEX = {}
 
 local function translate(player, key, ...)
-    if DEBUG then
-        print(player)
-        print(key)
-        print(...)
-    end
     local localeId = player:GetDbLocaleIndex() or 0
     local loc = LOCALE[localeId] or LOCALE[0]
     local str = loc[key] or string.gsub(key, " ", "") or key
@@ -104,10 +130,23 @@ local function translate(player, key, ...)
 end
 
 local function RoundDownToStep(lvl)
-    local result = LEVEL_STEPS[1]
-    for _, step in ipairs(LEVEL_STEPS) do
-        if lvl >= step then result = step else break end
+    local result = 10
+
+    local keys = {}
+    for k, v in pairs(LEVEL_STEPS) do
+        table.insert(keys, k)
     end
+    table.sort(keys)
+
+    for _, key in ipairs(keys) do
+        local cfg = LEVEL_STEPS[key]
+        if lvl >= cfg.level then
+            result = cfg.level
+        else
+            break
+        end
+    end
+
     return result
 end
 
@@ -180,6 +219,11 @@ local function SpellLink(player, spellId, spellName, spellRank)
 end
 
 local function SpellLabel(player, spell, playerLevel)
+
+    local spellInfo = GetSpellInfo(spell.id)
+    local spellName = spellInfo:GetName()
+    print(spellName)
+
     local rankSuffix = ""
     if spell.rank and spell.rank > 0 then
         rankSuffix = translate(player, "RANK_SUFFIX", spell.rank)
@@ -188,7 +232,7 @@ local function SpellLabel(player, spell, playerLevel)
     if spell.reqLevel and playerLevel < spell.reqLevel then
         levelSuffix = translate(player, "LEVEL_SUFFIX", spell.reqLevel)
     end
-    return string.format("%s %s %s", spell.name, rankSuffix, levelSuffix)
+    return string.format("%s %s %s", spellName, rankSuffix, levelSuffix)
 end
 
 local function EncodeSpellAction(level, spellIndex)
@@ -222,16 +266,7 @@ local function OpenMainMenu(player, creature)
     local playerClassName = player:GetClassAsString()
 
     for _, cls in ipairs(CLASSES) do
-        if cls.name ~= playerClassName and not HasMulticlass(player, cls.index) then
-            player:GossipMenuAddItem(
-                0,
-                translate(player, "CLASS_BUY", translate(player, cls.name)),
-                S_MAIN, cls.index * 10 + 1,
-                false,
-                translate(player, "CLASS_DESC", translate(player, cls.name)),
-                CLASS_COST
-            )
-        elseif cls.name ~= playerClassName then
+        if cls.name ~= playerClassName then
             player:GossipMenuAddItem(
                 0,
                 translate(player, "BUY_SPELLS", translate(player, cls.name)),
@@ -239,6 +274,23 @@ local function OpenMainMenu(player, creature)
                 false, "", 0
             )
         end
+        -- if cls.name ~= playerClassName and not HasMulticlass(player, cls.index) then   #####proper multiclassing
+        --     player:GossipMenuAddItem(
+        --         0,
+        --         translate(player, "CLASS_BUY", translate(player, cls.name)),
+        --         S_MAIN, cls.index * 10 + 1,
+        --         false,
+        --         translate(player, "CLASS_DESC", translate(player, cls.name)),
+        --         CLASS_COST
+        --     )
+        -- elseif cls.name ~= playerClassName then
+        --     player:GossipMenuAddItem(
+        --         0,
+        --         translate(player, "BUY_SPELLS", translate(player, cls.name)),
+        --         S_MAIN, cls.index * 10 + 2,
+        --         false, "", 0
+        --     )
+        -- end
     end
 
     player:GossipSendMenu(1, creature)
@@ -307,7 +359,7 @@ local function OpenSpellMenu(player, creature, cls, level, page, sendLinks)
                 SpellMenuSender(cls.index), action,
                 false,
                 translate(player, "BUY_SPELL", spell.name, spell.rank or 1),
-                SPELL_COST
+                LEVEL_STEPS[level].cost
             )
         end
     end
@@ -351,10 +403,10 @@ local function OnGossipSelect(event, player, creature, sender, action)
                 OpenMainMenu(player, creature)
                 return
             end
-            if HasMulticlass(player, cls.index) then
-                OpenMainMenu(player, creature)
-                return
-            end
+            -- if HasMulticlass(player, cls.index) then
+            --     OpenMainMenu(player, creature)
+            --     return
+            -- end
             if (player:GetCoinage() or 0) < CLASS_COST then
                 OpenMainMenu(player, creature)
                 return
@@ -365,10 +417,10 @@ local function OnGossipSelect(event, player, creature, sender, action)
             OpenMainMenu(player, creature)
 
         elseif subAction == 2 then
-            if not HasMulticlass(player, cls.index) then
-                OpenMainMenu(player, creature)
-                return
-            end
+            -- if not HasMulticlass(player, cls.index) then
+            --     OpenMainMenu(player, creature)
+            --     return
+            -- end
             OpenLevelMenu(player, creature, cls)
         end
 
@@ -443,10 +495,6 @@ local function EnsureInit()
 end
 
 if ENABLE then
-
-    RegisterServerEvent(3, function()
-        EnsureInit()
-    end)
 
     EnsureInit()
 
